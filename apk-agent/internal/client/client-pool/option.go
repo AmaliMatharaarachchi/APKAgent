@@ -72,6 +72,6 @@ func WithDynamicLink(dynamicLink bool) Option {
 
 func WithDialOption(ops ...grpc.DialOption) Option {
 	return func(pool *Pool) {
-		pool.dialOptions = ops
+		pool.dialOptions = append(pool.dialOptions, ops...);
 	}
 }

@@ -30,7 +30,7 @@ func connect(addr string, dynamicLink bool, ops ...grpc.DialOption) (*grpc.Clien
 	if dynamicLink == true {
 		return grpc.Dial(addr, ops...)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
 	defer cancel()
 
 	return grpc.DialContext(ctx, addr, ops...)

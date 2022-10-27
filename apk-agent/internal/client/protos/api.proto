@@ -16,7 +16,7 @@ limitations under the License.
 
 syntax = "proto3";
 option go_package = "github.com/Tharsanan1/grpc-agent/grpc/api";
-
+package wso2.agent.api;
 service APIService {
     rpc createAPI(API) returns (Response);
     rpc updateAPI(API) returns (Response);
