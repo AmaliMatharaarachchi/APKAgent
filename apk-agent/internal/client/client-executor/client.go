@@ -19,10 +19,11 @@ import (
 	"context"
 	"flag"
 	"log"
-	"time"
-	"google.golang.org/grpc"
+
+	// "google.golang.org/grpc"
 	clientPool "github.com/AmaliMatharaarachchi/APKAgent/apk-agent/internal/client/client-pool"
 	apiProtos "github.com/AmaliMatharaarachchi/APKAgent/apk-agent/internal/client/grpc/api"
+	"google.golang.org/grpc"
 )
 
 var (
@@ -33,41 +34,47 @@ var (
 		  "name": [{"service": "wso2.agent.api.APIService"}],
 		  "waitForReady": true,
 		  "retryPolicy": {
-			  "MaxAttempts": 10,
+			  "MaxAttempts": 5,
 			  "InitialBackoff": "1s",
 			  "MaxBackoff": "1000s",
-			  "BackoffMultiplier": 1.0,
+			  "BackoffMultiplier": 2.0,
 			  "RetryableStatusCodes": [ "UNAVAILABLE" ]
 		  }
 		}]}`
 )
 
 func main() {
-	pool, err := clientPool.NewRpcClientPool(clientPool.WithServerAddr(*addr), clientPool.WithDialOption(grpc.WithDefaultServiceConfig(retryPolicy)))
+	pool, err := clientPool.Init("localhost:8765", 5, 3, []grpc.DialOption{
+		grpc.WithInsecure(),
+		grpc.WithBlock()}, 
+		clientPool.RetryPolicy{
+			MaxAttempts : 500,
+			BackOffInMilliSeconds : 1000,
+			RetryableStatuses : []string{},
+		})
 	if err != nil {
 		log.Println("init client pool error", err)
 		return
 	}
-	clientConn, close, err := pool.Acquire()
-	defer close()
+	clientConn, err := pool.GetConnection();
 	if err != nil {
-		log.Println("acquire client connection error")
+		log.Println("init client pool error", err)
 		return
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 
 	client := apiProtos.NewAPIServiceClient(clientConn);
-	defer cancel()
+	// defer cancel()
 
-	response, err :=  client.CreateAPI(ctx, &apiProtos.API{
-		ApiUUID: "test",
-		ApiVersion: "1.0.0",
+	response, err := pool.ExecuteGRPCCall(clientConn, func () (interface{}, error) {
+		return client.CreateAPI(context.Background(), &apiProtos.API{
+			ApiUUID: "test",
+			ApiVersion: "1.0.0",
+		})
 	})
-
 	if err != nil {
 		log.Fatalf("Create API failed: %v", err)
 	}
-
 	log.Printf("%q",response)
 	
 	

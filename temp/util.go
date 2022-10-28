@@ -24,26 +24,27 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/connectivity"
+	grpc_retry "github.com/grpc-ecosystem/go-grpc-middleware/retry"
 )
 
-func connect(addr string, dynamicLink bool, ops ...grpc.DialOption) (*grpc.ClientConn, error) {
-	if dynamicLink == true {
-		return grpc.Dial(addr, ops...)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
-	defer cancel()
-
-	return grpc.DialContext(ctx, addr, ops...)
+func getGRPCConnection(addr string) (*grpc.ClientConn, error) {
+	// conf, _ := config.ReadConfigs()
+	var retryInterval time.Duration = 3; 
+	backOff := grpc_retry.BackoffLinearWithJitter(retryInterval*time.Second, 0.5)
+	return grpc.Dial(
+		addr,
+		grpc.WithInsecure(),
+		grpc.WithBlock(),
+		grpc.WithStreamInterceptor(
+			grpc_retry.StreamClientInterceptor(grpc_retry.WithBackoff(backOff))))
 }
 
 func (pool *Pool) init() error {
 	len := cap(pool.connections) - len(pool.connections)
 	addr := pool.ServerAddr
-	dynamicLink := pool.DynamicLink
-	ops := pool.dialOptions
 
 	for i := 1; i <= len; i++ {
-		client, err := connect(addr, dynamicLink, ops...)
+		client, err := getGRPCConnection(addr)
 		if err != nil {
 			return err
 		}

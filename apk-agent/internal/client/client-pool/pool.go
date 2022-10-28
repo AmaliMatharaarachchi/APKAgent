@@ -17,107 +17,168 @@ limitations under the License.
 package client
 
 import (
-	"context"
 	"errors"
+	"log"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"google.golang.org/grpc"
-)
+) 
 
-var (
-	errAcquire = errors.New("acquire connection timed out, you can fix this error by setting the overflow cap or increasing the maximum capacity of the cap")
-	errTimeout = errors.New("connect timed out, check the address configuration or network status")
-)
 
-//CloseFunc should defer
-type CloseFunc func()
-
-func NewRpcClientPool(ops ...Option) (*Pool, error) {
-	pool := &Pool{
-		MaxCap:         10,
-		AcquireTimeout: 3 * time.Second,
-		DynamicLink:    false,
-		OverflowCap:    true,
-		dialOptions:    []grpc.DialOption{grpc.WithInsecure()},
-		lock:           &sync.Mutex{},
-		counter:        0,
-		ChannelStat:    true,
-	}
-
-	// Loop through each option
-	for _, opt := range ops {
-		// Call the option giving the instantiated
-		opt(pool)
-	}
-
-	pool.connections = make(chan *grpc.ClientConn, pool.MaxCap)
-
-	if err := pool.init(); err != nil {
-		return nil, err
-	}
-
-	return pool, nil
+type Pool struct {
+	serverAddress string;
+	maxCapacity int;
+	desiredCapacity int;
+	dialOptions []grpc.DialOption;
+	availableConnections *[]grpc.ClientConn;
+	usedConnections *[]grpc.ClientConn;
+	lock *sync.Mutex;
+	retryPolicy RetryPolicy;
 }
 
-func (pool *Pool) Acquire() (*grpc.ClientConn, CloseFunc, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), pool.AcquireTimeout)
-	defer cancel()
+type RetryPolicy struct {
+	MaxAttempts int;
+	BackOffInMilliSeconds int;
+	RetryableStatuses []string;
+}
 
-	for {
-		select {
-		case clientConn := <-pool.connections:
-			con := activate(clientConn)
-			switch con {
-			case Ready:
-				pool.count(1)
-				return clientConn, func() { pool.close(clientConn) }, nil
-			case Put:
-				pool.close(clientConn)
-				continue
-			default:
-				pool.count(-1)
-				destroy(clientConn)
-				continue
-			}
-		case <-ctx.Done():
-			return nil, nil, errAcquire
-		default:
-			if pool.OverflowCap == false && pool.counter >= pool.MaxCap {
-				continue
-			} else {
-				addr := pool.ServerAddr
-				dynamicLink := pool.DynamicLink
-				ops := append(pool.dialOptions, grpc.WithBlock())
-				clientConn, err := connect(addr, dynamicLink, ops...)
-				if err != nil {
-					if err == context.DeadlineExceeded {
-						return nil, nil, errTimeout
-					}
-					return nil, nil, err
-				}
-				pool.count(1)
-				return clientConn, func() { pool.close(clientConn) }, nil
-			}
+
+func Init(serverAddress string, maxCapacity int, desiredCapacity int, dialOptions []grpc.DialOption, retryPolicy RetryPolicy) (*Pool, error) {
+	connectionPool := Pool{lock: &sync.Mutex{}};
+	connectionPool.lock.Lock();
+	defer connectionPool.lock.Unlock();
+	connectionPool.maxCapacity = maxCapacity;
+	connectionPool.desiredCapacity =  desiredCapacity;
+	connectionPool.serverAddress = serverAddress;
+	connectionPool.dialOptions = dialOptions;
+	connectionPool.availableConnections = &[]grpc.ClientConn{};
+	connectionPool.usedConnections = &[]grpc.ClientConn{};
+	connectionPool.retryPolicy = retryPolicy;
+	for i := 0; i < desiredCapacity; i++ {
+		conn, err := createGRPCConnection(connectionPool);
+		if (err != nil) {
+			return nil,err;
+		}
+		
+		availableConnections := connectionPool.availableConnections;
+		*availableConnections = append(*availableConnections, *conn);
+	}
+	return &connectionPool, nil;
+}
+
+// func InitWithConfig(serverAddress string, maxCapacity int, desiredCapacity int)  (*Pool, error) {
+// 	connectionPool := Pool{lock: &sync.Mutex{}};
+// 	connectionPool.lock.Lock();
+// 	defer connectionPool.lock.Unlock();
+// 	connectionPool.maxCapacity = maxCapacity;
+// 	connectionPool.desiredCapacity =  desiredCapacity;
+// 	connectionPool.serverAddress = serverAddress;
+// 	conf, _ := config.ReadConfigs()
+// 	retryInterval := conf.GlobalAdapter.RetryInterval
+// 	backOff := grpc_retry.BackoffLinearWithJitter(retryInterval*time.Second, 0.5)
+// 	connectionPool.dialOptions = []grpc.DialOption{grpc.WithInsecure(),
+// 		grpc.WithBlock(),
+// 		grpc.WithStreamInterceptor(
+// 			grpc_retry.StreamClientInterceptor(grpc_retry.WithBackoff(backOff)))};
+// 	for i := 0; i < desiredCapacity; i++ {
+// 		conn, err := createGRPCConnection(connectionPool);
+// 		if (err != nil) {
+// 			return nil, err; 
+// 		}
+// 		availableConnections := connectionPool.availableConnections;
+// 		*availableConnections = append(*availableConnections, *conn);
+// 	}
+// 	return &connectionPool, nil;
+// }
+
+func (connectionPool *Pool) GetConnection() (*grpc.ClientConn, error){
+	connectionPool.lock.Lock();
+	defer connectionPool.lock.Unlock();
+	availableConnections := *connectionPool.availableConnections;
+	availableConnectionLength := len(availableConnections);
+	if (availableConnectionLength > 0) {
+		availableConnection := &availableConnections[0];
+		*connectionPool.availableConnections = (*connectionPool.availableConnections)[1:]
+		*connectionPool.usedConnections = append(*connectionPool.usedConnections, *availableConnection);
+		return availableConnection, nil;
+	} else {
+		totalConnectionLength := availableConnectionLength + len(*connectionPool.usedConnections);
+		if (totalConnectionLength < connectionPool.maxCapacity) {
+			return createGRPCConnection(*connectionPool);
+		} else {
+			return nil, errors.New("Maximum connection reached in the pool.")
 		}
 	}
 }
 
-// GetStat Return to the use of resources in the pool
-func (pool *Pool) GetStat() (used int64, surplus int) {
-	return atomic.LoadInt64(&pool.counter), len(pool.connections)
+func createGRPCConnection(connectionPool Pool) (*grpc.ClientConn, error) {
+	return grpc.Dial(
+		connectionPool.serverAddress, 
+		connectionPool.dialOptions...	
+	)
 }
 
-// ClearPool Disconnect the link before exit the program
-func (pool *Pool) ClearPool() {
-	pool.lock.Lock()
-	defer pool.lock.Unlock()
+func (connectionPool *Pool) Close(connection *grpc.ClientConn) error{
+	connectionPool.lock.Lock();
+	defer connectionPool.lock.Unlock();
+	var index int = -1;
+	var connections *[]grpc.ClientConn;
+	for k, v := range *connectionPool.usedConnections {
+       if connection == &v {
+           index = k;
+		   connections = connectionPool.usedConnections;
+		   break;
+       }
+    }
+	if (index == -1) {
+		for k, v := range *connectionPool.availableConnections {
+			if connection == &v {
+				index = k;
+				connections = connectionPool.availableConnections;
+				break;
+			}
+		}
+	}
+	if (index != -1) {
+		len := len(*connections);
+		(*connections)[index] = (*connections)[len-1]
+		*connections = (*connections)[:len-1];
+	}
+	return connection.Close();
+}
 
-	pool.ChannelStat = false
-	close(pool.connections)
+func (connectionPool *Pool) CloseAll() {
+	for _, v := range *connectionPool.usedConnections {
+       v.Close();
+    }
+	for _, v := range *connectionPool.availableConnections {
+       v.Close();
+    }
+	*connectionPool.usedConnections = []grpc.ClientConn{};
+	*connectionPool.availableConnections = []grpc.ClientConn{};
+}
 
-	for client := range pool.connections {
-		destroy(client)
+func (connectionPool *Pool) ExecuteGRPCCall(connection *grpc.ClientConn, call func() (interface{}, error)) (interface{}, error) {
+	retries := 0;
+	response, err := call();
+	for {
+		
+		if (err != nil) {
+			if (connectionPool.retryPolicy.MaxAttempts < 0) {
+				retries = connectionPool.retryPolicy.MaxAttempts - 1;
+			} else {
+				retries++;
+			}
+			if (retries <= connectionPool.retryPolicy.MaxAttempts) {
+				log.Print("Error occured while calling grpc server", err);
+				time.Sleep(time.Duration(connectionPool.retryPolicy.BackOffInMilliSeconds) * time.Millisecond)
+				response, err = call();
+			} else {
+				return response, err;
+			}
+		} else {
+			return response, nil;
+		}
 	}
 }

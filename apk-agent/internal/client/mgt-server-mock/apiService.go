@@ -20,8 +20,8 @@ import (
 	"context"
 	"log"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
+	// "google.golang.org/grpc/codes"
+	// "google.golang.org/grpc/status"
 	apiProtos "github.com/AmaliMatharaarachchi/APKAgent/apk-agent/internal/client/grpc/api"
 )
 
@@ -36,8 +36,8 @@ func NewApiService() *aPIService {
 func (s *aPIService) CreateAPI(ctx context.Context, api *apiProtos.API ) (*apiProtos.Response, error) {
 	log.Printf("%q", api);
 	// No feature was found, return an unnamed feature
-	// return &apiProtos.Response{Result : true}, nil
-	return nil, status.Errorf(codes.Unavailable, "maybeFailRequest: failing it")
+	return &apiProtos.Response{Result : true}, nil
+	// return nil, status.Errorf(codes.Unavailable, "maybeFailRequest: failing it")
 }
 
 func (s *aPIService) UpdateAPI(ctx context.Context, api *apiProtos.API ) (*apiProtos.Response, error) {
