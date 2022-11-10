@@ -1,2 +1,16 @@
-[globalAdapter]
-  retryInterval=3
+[adapter]
+[adapter.keystore]
+  certPath = "/home/tharsanan/Projects/wso2/Forked/apk/adapter/resources/security/mg.pem"
+  keyPath = "/home/tharsanan/Projects/wso2/Forked/apk/adapter/resources/security/mg.key"
+
+[adapter.truststore]
+  location = "/home/tharsanan/Projects/wso2/Forked/apk/adapter/resources/security/mg.pem"
+[managementServer]
+[managementServer.keystore]
+  certPath = "/home/tharsanan/Projects/wso2/Forked/apk/adapter/resources/security/mg.pem"
+  keyPath = "/home/tharsanan/Projects/wso2/Forked/apk/adapter/resources/security/mg.key"
+
+[managementServer.truststore]
+  location = "/home/tharsanan/Projects/wso2/Forked/apk/adapter/resources/security/mg.pem"
+  
+

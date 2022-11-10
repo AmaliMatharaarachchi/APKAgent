@@ -19,9 +19,11 @@ package client
 import (
 	"errors"
 	"log"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/AmaliMatharaarachchi/APKAgent/apk-agent/internal/config"
 	"google.golang.org/grpc"
 ) 
 
@@ -67,30 +69,19 @@ func Init(serverAddress string, maxCapacity int, desiredCapacity int, dialOption
 	return &connectionPool, nil;
 }
 
-// func InitWithConfig(serverAddress string, maxCapacity int, desiredCapacity int)  (*Pool, error) {
-// 	connectionPool := Pool{lock: &sync.Mutex{}};
-// 	connectionPool.lock.Lock();
-// 	defer connectionPool.lock.Unlock();
-// 	connectionPool.maxCapacity = maxCapacity;
-// 	connectionPool.desiredCapacity =  desiredCapacity;
-// 	connectionPool.serverAddress = serverAddress;
-// 	conf, _ := config.ReadConfigs()
-// 	retryInterval := conf.GlobalAdapter.RetryInterval
-// 	backOff := grpc_retry.BackoffLinearWithJitter(retryInterval*time.Second, 0.5)
-// 	connectionPool.dialOptions = []grpc.DialOption{grpc.WithInsecure(),
-// 		grpc.WithBlock(),
-// 		grpc.WithStreamInterceptor(
-// 			grpc_retry.StreamClientInterceptor(grpc_retry.WithBackoff(backOff)))};
-// 	for i := 0; i < desiredCapacity; i++ {
-// 		conn, err := createGRPCConnection(connectionPool);
-// 		if (err != nil) {
-// 			return nil, err; 
-// 		}
-// 		availableConnections := connectionPool.availableConnections;
-// 		*availableConnections = append(*availableConnections, *conn);
-// 	}
-// 	return &connectionPool, nil;
-// }
+func InitWithConfig()  (*Pool, error) {
+	conf := config.ReadConfigs()
+	address := conf.Agent.ManagementServerAddress + ":" + strconv.Itoa(conf.Agent.ManagementServerGRPCPort);
+	return Init(address, conf.Agent.GRPCMaxCapacity, conf.Agent.GRPCDesiredCapacity, 
+		[]grpc.DialOption{
+			grpc.WithInsecure(),
+			grpc.WithBlock()}, 
+		RetryPolicy{
+			MaxAttempts : conf.Agent.GRPCMaxAttempts,
+			BackOffInMilliSeconds : conf.Agent.GRPCBackOffInMilliSeconds,
+			RetryableStatuses : []string{},
+		})
+}
 
 func (connectionPool *Pool) GetConnection() (*grpc.ClientConn, error){
 	connectionPool.lock.Lock();

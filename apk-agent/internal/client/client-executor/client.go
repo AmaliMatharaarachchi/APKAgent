@@ -23,35 +23,24 @@ import (
 	// "google.golang.org/grpc"
 	clientPool "github.com/AmaliMatharaarachchi/APKAgent/apk-agent/internal/client/client-pool"
 	apiProtos "github.com/AmaliMatharaarachchi/APKAgent/apk-agent/internal/client/grpc/api"
-	"google.golang.org/grpc"
 )
 
 var (
 	addr = flag.String("addr", "localhost:8765", "the address to connect to")
 	// see https://github.com/grpc/grpc/blob/master/doc/service_config.md to know more about service config
-	retryPolicy = `{
-		"methodConfig": [{
-		  "name": [{"service": "wso2.agent.api.APIService"}],
-		  "waitForReady": true,
-		  "retryPolicy": {
-			  "MaxAttempts": 5,
-			  "InitialBackoff": "1s",
-			  "MaxBackoff": "1000s",
-			  "BackoffMultiplier": 2.0,
-			  "RetryableStatusCodes": [ "UNAVAILABLE" ]
-		  }
-		}]}`
+	
 )
 
 func main() {
-	pool, err := clientPool.Init("localhost:8765", 5, 3, []grpc.DialOption{
-		grpc.WithInsecure(),
-		grpc.WithBlock()}, 
-		clientPool.RetryPolicy{
-			MaxAttempts : 500,
-			BackOffInMilliSeconds : 1000,
-			RetryableStatuses : []string{},
-		})
+	// pool, err := clientPool.Init("localhost:8765", 5, 3, []grpc.DialOption{
+	// 	grpc.WithInsecure(),
+	// 	grpc.WithBlock()}, 
+	// 	clientPool.RetryPolicy{
+	// 		MaxAttempts : 500,
+	// 		BackOffInMilliSeconds : 1000,
+	// 		RetryableStatuses : []string{},
+	// 	})
+	pool, err := clientPool.InitWithConfig();
 	if err != nil {
 		log.Println("init client pool error", err)
 		return
